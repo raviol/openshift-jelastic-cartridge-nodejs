@@ -51,6 +51,7 @@ function start() {
 
 
   if [ -f "${OPENSHIFT_REPO_DIR}/ROOT/package.json" ]; then
+      npm install;
       supervisor_opts="$(get_main_script_from_package_json)"
       node_cmd="npm start -d"
   else
