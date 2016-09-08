@@ -31,7 +31,7 @@ function handler (request, response) {
      }
 
 // Delete this row if you want to see debug messages
-io.set('log level', 1);
+// io.set('log level', 1);
 
 // Heroku doesn't support websockets so...
 // Detect if heroku via config vars
