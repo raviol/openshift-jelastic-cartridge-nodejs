@@ -5,7 +5,7 @@ Display-Name: Node.js 0.1x
 Description: Node.js is a platform built on Chrome's JavaScript runtime for easily
   building fast, scalable network applications. Node.js is perfect for data-intensive
   real-time applications that run across distributed devices.
-Version: '0.x-5.x'
+Version: '0.x-6.x'
 License: MIT License
 License-Url: https://raw.github.com/joyent/node/v0.10/LICENSE
 Vendor: www.nodejs.org
