@@ -69,7 +69,9 @@ function _shiftContentFromSubdirectory(){
                 fi
                 if [ "$amount" -eq 1 ]
                 then
-                       mv "${appwebroot}/${object}/${object}/"*  "${appwebroot}/${object}/" 2>/dev/null;
+                       set +f
+		       mv "${appwebroot}/${object}/${object}/"*  "${appwebroot}/${object}/" 2>/dev/null;
+		       set -f
                        if [ "$?" -ne 0 ]
                        then
                                 shopt -u dotglob;
@@ -83,7 +85,9 @@ function _shiftContentFromSubdirectory(){
         amount=`ls "$appwebroot/$object" | wc -l` ;
         if [ "$amount" -gt 0 ]
         then
-            mv "$appwebroot/$object/"* "$appwebroot/" 2>/dev/null ;
+            set +f
+	    mv "$appwebroot/$object/"* "$appwebroot/" 2>/dev/null ;
+	    set -f
             [ -d "$appwebroot/$object" ] && rm -rf "$appwebroot/$object";
         else
             rmdir "$appwebroot/$object" && [ `basename $appwebroot` != "ROOT" ] && { 
