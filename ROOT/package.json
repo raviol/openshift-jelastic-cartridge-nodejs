@@ -5,7 +5,7 @@
   "dependencies":
   {
     "node-static" : "latest",
-    "socket.io" : "latest"
+    "socket.io" : "1.7.4"
   },
   "engines": {
     "node": "0.10.x"
