@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple deploy and undeploy scenarios for Jelastic Python
+# Simple deploy and undeploy scenarios for Jelastic NodeJS
 
 inherit default exceptor;
 $PROGRAM unzip;
@@ -10,44 +10,58 @@ $PROGRAM unzip;
 [ -e "${MANAGE_CORE_PATH}/${COMPUTE_TYPE}"-deploy.lib ] && { include ${COMPUTE_TYPE}-deploy; }
 
 function _setContext(){
-        echo "You application just been deployed to wsgi context"
+        echo "You application just been deployed to ROOT context"
+}
+
+function getPackageName() {
+    if [ -f "$package_url" ]; then
+        package_name="$package_url";
+    elif [[ "${package_url}" =~ file://* ]]; then
+        package_name="${package_url:7}"
+        [ -f "$package_name" ] || { writeJSONResponseErr "result=>4078" "message=>Error loading file from URL"; die -q; }
+    else
+        ensureFileCanBeDownloaded $package_url;
+        $WGET --no-check-certificate --content-disposition --directory-prefix=${DOWNLOADS} $package_url >> $ACTIONS_LOG 2>&1 || { writeJSONResponseErr "result=>4078" "message=>Error loading file from URL"; die -q; }
+        package_name="${DOWNLOADS}/$(ls ${DOWNLOADS})";
+        [ ! -s "$package_name" ] && {
+            set -f
+            rm -f "${package_name}";
+            set +f
+            writeJSONResponseErr "result=>4078" "message=>Error loading file from URL";
+            die -q;
+        }
+    fi
 }
 
 function _unpack(){
-    package_name=`ls $DOWNLOADS`;
     APPWEBROOT=$1;
-    [ ! -s "$DOWNLOADS/$package_name" ] && { 
-        _clearCache;
-        [ `basename ${APPWEBROOT}` != "ROOT" ] && { rmdir ${APPWEBROOT}; }
-        writeJSONResponceErr "result=>4078" "message=>Error loading file from URL";
-        die -q;
-    }
+    shopt -s dotglob;
+    set -f
+    rm -Rf ${APPWEBROOT}/*;
+    set +f
+    shopt -u dotglob;
 
-    shopt -s dotglob; 
-    rm -Rf ${APPWEBROOT}*;
-    shopt -u dotglob; 
-    
-    ensureFileCanBeUncompressed "$DOWNLOADS/${package_name}";
     [[ ! -d "$APPWEBROOT" ]] && { mkdir -p $APPWEBROOT;}
     if [[ ${package_url} =~ .zip$ ]] || [[ ${package_name} =~ .zip$ ]]
     then
-        $UNZIP -o "$DOWNLOADS/$package_name" -d "$APPWEBROOT" 2>>$ACTIONS_LOG 1>/dev/null;
-    	return $?;
+        $UNZIP -o "$package_name" -d "$APPWEBROOT" 2>>$ACTIONS_LOG 1>/dev/null;
+        rcode=$?;
+        [ "$rcode" -eq 1 ] && return 0 || return $rcode
     fi
     if [[ ${package_url} =~ .tar$ ]] || [[ ${package_name} =~ .tar$ ]]
     then
-	   $TAR --overwrite -xpf "$DOWNLOADS/$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
-	   return $?;
+       $TAR --overwrite -xpf "$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
+       return $?;
     fi
     if [[ ${package_url} =~ .tar.gz$ ]] || [[ ${package_name} =~ .tar.gz$ ]]
     then
-	   $TAR --overwrite -xpzf "$DOWNLOADS/$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
-	   return $?;
+       $TAR --overwrite -xpzf "$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
+       return $?;
     fi
     if [[ ${package_url} =~ .tar.bz2$ ]] || [[ ${package_name} =~ .tar.bz2$ ]]
     then
-	   $TAR --overwrite -xpjf  "$DOWNLOADS/$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
-	   return $?;
+       $TAR --overwrite -xpjf  "$package_name" -C "$APPWEBROOT" >> $ACTIONS_LOG 2>&1;
+       return $?;
     fi
 }
 
@@ -70,8 +84,8 @@ function _shiftContentFromSubdirectory(){
                 if [ "$amount" -eq 1 ]
                 then
                        set +f
-		       mv "${appwebroot}/${object}/${object}/"*  "${appwebroot}/${object}/" 2>/dev/null;
-		       set -f
+                       mv "${appwebroot}/${object}/${object}/"*  "${appwebroot}/${object}/" 2>/dev/null;
+                       set -f
                        if [ "$?" -ne 0 ]
                        then
                                 shopt -u dotglob;
@@ -86,8 +100,8 @@ function _shiftContentFromSubdirectory(){
         if [ "$amount" -gt 0 ]
         then
             set +f
-	    mv "$appwebroot/$object/"* "$appwebroot/" 2>/dev/null ;
-	    set -f
+            mv "$appwebroot/$object/"* "$appwebroot/" 2>/dev/null ;
+            set -f
             [ -d "$appwebroot/$object" ] && rm -rf "$appwebroot/$object";
         else
             rmdir "$appwebroot/$object" && [ `basename $appwebroot` != "ROOT" ] && { 
@@ -102,7 +116,7 @@ function _shiftContentFromSubdirectory(){
 function _clearCache(){
     if [[ -d "$DOWNLOADS" ]]
     then
-	   shopt -s dotglob;
+           shopt -s dotglob;
        rm -Rf ${DOWNLOADS}/*;
        shopt -u dotglob;
     fi
@@ -110,7 +124,7 @@ function _clearCache(){
 
 function _updateOwnership(){
     shopt -s dotglob;
-	APPWEBROOT=$1;
+        APPWEBROOT=$1;
         chown -R "$DATA_OWNER" "$APPWEBROOT" 2>>"$JEM_CALLS_LOG";
         chmod -R a+r  "$APPWEBROOT" 2>>"$JEM_CALLS_LOG";
     chmod -R u+w  "$APPWEBROOT" 2>>"$JEM_CALLS_LOG";
@@ -121,7 +135,7 @@ function prepareContext(){
     local context=$1;
     if [ "$context" == "ROOT" ]
     then
-	    APPWEBROOT=${WEBROOT}/ROOT/;
+            APPWEBROOT=${WEBROOT}/ROOT/;
     else
         APPWEBROOT=$WEBROOT/$context/;
     fi
@@ -131,16 +145,13 @@ function prepareContext(){
 
 function _deploy(){
     echo "Starting deploying application ..." >> $ACTIONS_LOG 2>&1;
-    local package_url=$1;
-    local context=$2;
-    local ext=$3;
+    package_url=$1;
+    context=$2;
+    ext=$3;
     [ ! -d "$DOWNLOADS" ] && { mkdir -p "$DOWNLOADS"; }
     _clearCache;
-    ensureFileCanBeDownloaded $package_url;
     prepareContext ${context} ;
-    $WGET -nv --tries=2 --content-disposition --no-check-certificate --directory-prefix=$DOWNLOADS $package_url >> $ACTIONS_LOG 2>&1;
-    [ $? -gt 0 ] && { writeJSONResponceErr "result=>4078" "message=>Error loading file from URL" ; die -q; };
-    # check exactly FILE - it should not exists, otherwise 'mkdir' return error
+    getPackageName;
     if [[ -f "${APPWEBROOT%/}" ]]
     then
         rm -f "${APPWEBROOT%/}";
@@ -152,12 +163,12 @@ function _deploy(){
         _setContext $context;
     fi
     _finishDeploy;
+    service cartridge restart 2>>/dev/null 1>>/dev/null;
 }
 
 function _finishDeploy(){
     _updateOwnership $APPWEBROOT;
     _clearCache;
-    #service cartridge restart 2>/dev/null 1>/dev/null;
 } 
 
 function _undeploy(){
@@ -165,15 +176,15 @@ function _undeploy(){
     if [ "x$context" == "xROOT" ]
     then
         APPWEBROOT=${WEBROOT}/ROOT;
-    	if [[ -d "$APPWEBROOT" ]]
+        if [[ -d "$APPWEBROOT" ]]
         then
-    		shopt -s dotglob;
-        	rm -Rf $APPWEBROOT/* ;
-        	shopt -u dotglob;
-    	fi
+                shopt -s dotglob;
+                rm -Rf $APPWEBROOT/* ;
+                shopt -u dotglob;
+        fi
     else
         APPWEBROOT=$WEBROOT/$context
-	if [[ -d "$APPWEBROOT" ]]
+        if [[ -d "$APPWEBROOT" ]]
     then
        rm -Rf $APPWEBROOT ;
     fi
@@ -181,56 +192,14 @@ function _undeploy(){
     fi
 }
 
-function _renameContext(){
-    local newContext=$1;
-    local oldContext=$2;
-    if [ ! -d "$WEBROOT/$newContext" ]
-    then
-        mkdir -p "$WEBROOT/$newContext";
-    else
-        shopt -s dotglob
-        rm -Rf "$WEBROOT/$newContext/"*;
-        shopt -u dotglob
-    fi
-
-    if [ -d "$WEBROOT/$oldContext" ]
-    then
-        shopt -s dotglob;
-        mv "$WEBROOT/$oldContext/"* "$WEBROOT/$newContext/" 2>/dev/null && [ "$oldContext" != "ROOT" ] && rm -rf $WEBROOT/$oldContext;
-        shopt -u dotglob;
-    else
-        #~ echo "Can't find \"$oldContext\"" >&2;
-        writeJSONResponceErr "result=>4052" "message=>Context does not exist";
-        die -q;
-    fi
-
-    if [ "$newContext" == "ROOT" ]
-    then
-        rm -Rf $WEBROOT/$oldContext/ 2>/dev/null;
-        _delContext $oldContext;
-        return 0;
-    else
-        if [ "$oldContext" == "ROOT" ]
-        then
-    	    _setContext $newContext;
-	else
-	    rm -Rf $WEBROOT/$oldContext/ 2>/dev/null;
-    	    _rename $newContext $oldContext ;
-    	fi
-    fi
-
-    _updateOwnership "$WEBROOT/$newContext"
-
-}
-
 function describeDeploy(){
-    echo "deploy php application \n\t\t -u \t <package URL> \n\t\t -c \t <context> \n\t\t -e \t zip | tar | tar.gz | tar.bz";
+    echo "deploy nodejs application \n\t\t -u \t <package URL> \n\t\t -c \t <context> \n\t\t -e \t zip | tar | tar.gz | tar.bz";
 }
 
 function describeUndeploy(){
-    echo "undeploy php application \n\t\t -c \t <context>";
+    echo "undeploy nodejs application \n\t\t -c \t <context>";
 }
 
 function describeRename(){
-    echo "rename php context \n\t\t -n \t <new context> \n\t\t -o \t <old context>\n\t\t -e \t <extension>";
+    echo "rename nodejs context \n\t\t -n \t <new context> \n\t\t -o \t <old context>\n\t\t -e \t <extension>";
 }
